@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>คะแนนปฏิบัติ</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: Arial, sans-serif;
+            background: #f8fafc;
+            color: #0f172a;
+        }
+
+        .page-header {
+            background: linear-gradient(135deg, #b91c1c 0%, #dc2626 54%, #991b1b 100%);
+            color: #ffffff;
+            padding: 34px 20px 72px;
+            text-align: center;
+        }
+
+        .page-logo {
+            display: block;
+            width: 92px;
+            height: 92px;
+            margin: 0 auto 14px;
+            border: 4px solid rgba(255, 255, 255, 0.78);
+            border-radius: 50%;
+            background: #ffffff;
+            object-fit: cover;
+            box-shadow: 0 12px 26px rgba(69, 10, 10, 0.24);
+        }
+
+        .page-header h1 {
+            margin: 0;
+            font-size: clamp(26px, 4vw, 40px);
+            font-weight: 800;
+        }
+
+        .page-header p {
+            margin: 10px 0 0;
+            color: rgba(255, 255, 255, 0.86);
+            font-size: 15px;
+        }
+
+        .page-main {
+            width: min(980px, calc(100% - 32px));
+            margin: -44px auto 32px;
+        }
+
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 14px;
+            margin-bottom: 18px;
+        }
+
+        .summary-card {
+            min-height: 92px;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            background: #ffffff;
+            padding: 16px;
+            box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+        }
+
+        .summary-label {
+            color: #64748b;
+            font-size: 13px;
+            font-weight: 700;
+        }
+
+        .summary-value {
+            margin-top: 8px;
+            color: #0f172a;
+            font-size: 30px;
+            font-weight: 800;
+            line-height: 1;
+        }
+
+        .score-panel {
+            overflow: hidden;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            background: #ffffff;
+            box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+        }
+
+        .toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 14px 16px;
+            border-bottom: 1px solid #e2e8f0;
+            background: #ffffff;
+        }
+
+        .toolbar-title {
+            margin: 0;
+            color: #1e293b;
+            font-size: 17px;
+            font-weight: 800;
+        }
+
+        .toolbar-actions {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+            gap: 8px;
+        }
+
+        .print-btn,
+        .reset-btn {
+            min-height: 38px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 700;
+            padding: 0 14px;
+        }
+
+        .print-btn {
+            border: 1px solid #991b1b;
+            background: #b91c1c;
+            color: #ffffff;
+        }
+
+        .print-btn:hover {
+            background: #991b1b;
+        }
+
+        .reset-btn {
+            border: 1px solid #fecaca;
+            background: #fff1f2;
+            color: #be123c;
+        }
+
+        .reset-btn:hover {
+            background: #ffe4e6;
+        }
+
+        .table-wrap {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            min-width: 720px;
+            border-collapse: collapse;
+        }
+
+        thead th {
+            position: sticky;
+            top: 0;
+            z-index: 2;
+            background: #fee2e2;
+            color: #7f1d1d;
+            box-shadow: 0 1px 0 #fecaca;
+        }
+
+        th,
+        td {
+            padding: 14px 16px;
+            border-bottom: 1px solid #e2e8f0;
+            text-align: left;
+            vertical-align: middle;
+        }
+
+        th {
+            font-size: 13px;
+            font-weight: 800;
+            white-space: nowrap;
+        }
+
+        td:first-child,
+        th:first-child {
+            width: 72px;
+            text-align: center;
+        }
+
+        .student-input {
+            width: 100%;
+            min-height: 40px;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            padding: 0 12px;
+            color: #0f172a;
+            font-size: 15px;
+            outline: none;
+        }
+
+        .student-input:focus {
+            border-color: #dc2626;
+            box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.12);
+        }
+
+        .status-control {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(118px, 1fr));
+            gap: 8px;
+        }
+
+        .status-control button {
+            min-height: 40px;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            background: #ffffff;
+            color: #475569;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 800;
+        }
+
+        .status-control button:hover {
+            border-color: #94a3b8;
+            background: #f8fafc;
+        }
+
+        .status-control button.pass.active {
+            border-color: #16a34a;
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .status-control button.fail.active {
+            border-color: #dc2626;
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .status-text {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 86px;
+            min-height: 32px;
+            border-radius: 999px;
+            background: #f1f5f9;
+            color: #64748b;
+            font-size: 13px;
+            font-weight: 800;
+        }
+
+        .status-text.pass {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .status-text.fail {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        @media (max-width: 680px) {
+            .page-header {
+                padding-bottom: 62px;
+            }
+
+            .page-main {
+                width: min(100% - 20px, 980px);
+            }
+
+            .summary-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .toolbar {
+                align-items: stretch;
+                flex-direction: column;
+            }
+
+            .toolbar-actions {
+                justify-content: stretch;
+            }
+
+            .toolbar-actions button {
+                flex: 1 1 auto;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header class="page-header">
+        <img class="page-logo" src="school_logo.jfif" alt="ตราโรงเรียนอรัญภูมิบริบาล">
+        <h1>คะแนนปฏิบัติ</h1>
+        <p>นักเรียน 7 คน</p>
+    </header>
+
+    <main class="page-main">
+        <section class="summary-grid" aria-label="สรุปคะแนนปฏิบัติ">
+            <div class="summary-card">
+                <div class="summary-label">ทั้งหมด</div>
+                <div class="summary-value" id="total-count">7</div>
+            </div>
+            <div class="summary-card">
+                <div class="summary-label">ผ่าน</div>
+                <div class="summary-value" id="pass-count">0</div>
+            </div>
+            <div class="summary-card">
+                <div class="summary-label">ไม่ผ่าน</div>
+                <div class="summary-value" id="fail-count">0</div>
+            </div>
+        </section>
+
+        <section class="score-panel">
+            <div class="toolbar">
+                <h2 class="toolbar-title">รายการประเมินปฏิบัติ</h2>
+                <div class="toolbar-actions">
+                    <button type="button" class="print-btn" onclick="printPracticalReport()">ปริ้นแบบฟอร์มโรงเรียน</button>
+                    <button type="button" class="reset-btn" onclick="resetScores()">ล้างค่า</button>
+                </div>
+            </div>
+
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ลำดับ</th>
+                            <th>ชื่อ-นามสกุล</th>
+                            <th>ผลการประเมิน</th>
+                            <th>สถานะ</th>
+                        </tr>
+                    </thead>
+                    <tbody id="student-table-body"></tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        const STORAGE_KEY = 'practical-score-students-v2';
+        const SCHOOL_LOGO_URL = new URL('school_logo.jfif', window.location.href).href;
+        const defaultStudents = [
+            { name: 'นางสาวชุติกาญจน์  โพธิสาร', status: '' },
+            { name: 'นางสาวณิชานันท์ สิทธิบุรี', status: '' },
+            { name: 'นางสาวธัญญาเรศ จันทะพงษ์', status: '' },
+            { name: 'นายธีรศักดิ์ เอกวุธ', status: '' },
+            { name: 'นางสาวสิริญญา คงฟัก', status: '' },
+            { name: 'นายสุรเชษฐ์ วงค์สุวรรณ', status: '' },
+            { name: 'นางสาวอภิสรา มารปริ', status: '' }
+        ];
+
+        let students = loadStudents();
+
+        function loadStudents() {
+            try {
+                const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
+                if (Array.isArray(saved) && saved.length === 7) {
+                    return saved.map((student, index) => ({
+                        name: student.name || `นักเรียนคนที่ ${index + 1}`,
+                        status: student.status === 'pass' || student.status === 'fail' ? student.status : ''
+                    }));
+                }
+            } catch (error) {
+                console.warn('Cannot load practical score data', error);
+            }
+
+            return defaultStudents.map(student => ({ ...student }));
+        }
+
+        function saveStudents() {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(students));
+        }
+
+        function renderTable() {
+            const body = document.getElementById('student-table-body');
+            body.innerHTML = students.map((student, index) => {
+                const statusLabel = student.status === 'pass'
+                    ? 'ผ่าน'
+                    : student.status === 'fail'
+                        ? 'ไม่ผ่าน'
+                        : 'รอเลือก';
+
+                return `
+                    <tr>
+                        <td>${index + 1}</td>
+                        <td>
+                            <input
+                                class="student-input"
+                                value="${escapeHtml(student.name)}"
+                                oninput="updateName(${index}, this.value)"
+                                aria-label="ชื่อนักเรียนลำดับที่ ${index + 1}">
+                        </td>
+                        <td>
+                            <div class="status-control">
+                                <button type="button" class="pass ${student.status === 'pass' ? 'active' : ''}" onclick="setStatus(${index}, 'pass')">ผ่าน</button>
+                                <button type="button" class="fail ${student.status === 'fail' ? 'active' : ''}" onclick="setStatus(${index}, 'fail')">ไม่ผ่าน</button>
+                            </div>
+                        </td>
+                        <td>
+                            <span class="status-text ${student.status}">${statusLabel}</span>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+
+            updateSummary();
+        }
+
+        function updateName(index, name) {
+            students[index].name = name;
+            saveStudents();
+        }
+
+        function setStatus(index, status) {
+            students[index].status = status;
+            saveStudents();
+            renderTable();
+        }
+
+        function resetScores() {
+            students = defaultStudents.map(student => ({ ...student }));
+            saveStudents();
+            renderTable();
+        }
+
+        function printPracticalReport() {
+            const printedAt = new Date().toLocaleDateString('th-TH', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            }) + ' น.';
+
+            const passCount = students.filter(student => student.status === 'pass').length;
+            const failCount = students.filter(student => student.status === 'fail').length;
+            const pendingCount = students.length - passCount - failCount;
+            const studentRows = students.map((student, index) => {
+                const passMark = student.status === 'pass' ? 'ผ่าน' : '';
+                const failMark = student.status === 'fail' ? 'ไม่ผ่าน' : '';
+                const note = student.status ? '' : 'รอประเมิน';
+
+                return `
+                    <tr>
+                        <td class="center">${index + 1}</td>
+                        <td>${escapeHtml(student.name)}</td>
+                        <td class="center">${passMark}</td>
+                        <td class="center">${failMark}</td>
+                        <td>${note}</td>
+                    </tr>
+                `;
+            }).join('');
+
+            const reportHtml = `
+                <!DOCTYPE html>
+                <html lang="th">
+                <head>
+                    <meta charset="UTF-8">
+                    <title>แบบฟอร์มคะแนนปฏิบัติ</title>
+                    <style>
+                        @page { size: A4; margin: 14mm; }
+                        * { box-sizing: border-box; }
+                        body {
+                            margin: 0;
+                            color: #0f172a;
+                            font-family: Arial, sans-serif;
+                            font-size: 13px;
+                            line-height: 1.55;
+                        }
+                        .report-header {
+                            padding-bottom: 14px;
+                            margin-bottom: 16px;
+                            border-bottom: 3px solid #b91c1c;
+                            text-align: center;
+                        }
+                        .school-logo {
+                            display: block;
+                            width: 96px;
+                            height: 96px;
+                            margin: 0 auto 10px;
+                            border: 2px solid #e2e8f0;
+                            border-radius: 50%;
+                            background: #ffffff;
+                            object-fit: cover;
+                        }
+                        h1 {
+                            margin: 0;
+                            color: #991b1b;
+                            font-size: 24px;
+                            font-weight: 800;
+                        }
+                        h2 {
+                            margin: 4px 0 0;
+                            color: #334155;
+                            font-size: 17px;
+                            font-weight: 700;
+                        }
+                        .meta {
+                            margin-top: 8px;
+                            color: #64748b;
+                            font-size: 11px;
+                        }
+                        .summary-grid {
+                            display: grid;
+                            grid-template-columns: repeat(4, 1fr);
+                            gap: 10px;
+                            margin-bottom: 16px;
+                        }
+                        .summary-card {
+                            min-height: 70px;
+                            border: 1px solid #cbd5e1;
+                            border-radius: 8px;
+                            padding: 10px;
+                        }
+                        .summary-label {
+                            color: #64748b;
+                            font-size: 11px;
+                        }
+                        .summary-value {
+                            margin-top: 4px;
+                            color: #0f172a;
+                            font-size: 20px;
+                            font-weight: 800;
+                        }
+                        .section-title {
+                            margin: 16px 0 8px;
+                            color: #1e293b;
+                            font-size: 15px;
+                            font-weight: 800;
+                        }
+                        table {
+                            width: 100%;
+                            border-collapse: collapse;
+                        }
+                        th,
+                        td {
+                            border: 1px solid #cbd5e1;
+                            padding: 8px 9px;
+                            vertical-align: top;
+                        }
+                        th {
+                            background: #fee2e2;
+                            color: #7f1d1d;
+                            font-weight: 800;
+                            text-align: left;
+                        }
+                        .center {
+                            text-align: center;
+                        }
+                        .signature {
+                            display: grid;
+                            grid-template-columns: repeat(2, 1fr);
+                            gap: 44px;
+                            margin-top: 42px;
+                        }
+                        .signature-admin {
+                            width: 48%;
+                            margin: 34px auto 0;
+                        }
+                        .signature-box {
+                            padding-top: 34px;
+                            text-align: center;
+                        }
+                        .line {
+                            border-top: 1px solid #475569;
+                            padding-top: 6px;
+                            color: #334155;
+                        }
+                    </style>
+                </head>
+                <body>
+                    <section class="report-header">
+                        <img class="school-logo" src="${SCHOOL_LOGO_URL}" alt="ตราโรงเรียนอรัญภูมิบริบาล">
+                        <h1>แบบฟอร์มรายงานผลคะแนนปฏิบัติ</h1>
+                        <h2>โรงเรียนอรัญภูมิบริบาล</h2>
+                        <div class="meta">พิมพ์รายงานเมื่อ ${printedAt}</div>
+                    </section>
+
+                    <section class="summary-grid">
+                        <div class="summary-card">
+                            <div class="summary-label">จำนวนนักเรียนทั้งหมด</div>
+                            <div class="summary-value">${students.length} คน</div>
+                        </div>
+                        <div class="summary-card">
+                            <div class="summary-label">ผ่าน</div>
+                            <div class="summary-value">${passCount} คน</div>
+                        </div>
+                        <div class="summary-card">
+                            <div class="summary-label">ไม่ผ่าน</div>
+                            <div class="summary-value">${failCount} คน</div>
+                        </div>
+                        <div class="summary-card">
+                            <div class="summary-label">รอประเมิน</div>
+                            <div class="summary-value">${pendingCount} คน</div>
+                        </div>
+                    </section>
+
+                    <div class="section-title">รายชื่อนักเรียนและผลการประเมิน</div>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th class="center" style="width: 52px;">ลำดับ</th>
+                                <th>ชื่อ-นามสกุล</th>
+                                <th class="center" style="width: 92px;">ผ่าน</th>
+                                <th class="center" style="width: 92px;">ไม่ผ่าน</th>
+                                <th style="width: 120px;">หมายเหตุ</th>
+                            </tr>
+                        </thead>
+                        <tbody>${studentRows}</tbody>
+                    </table>
+
+                    <section class="signature">
+                        <div class="signature-box">
+                            <div class="line">ผู้ประเมิน</div>
+                        </div>
+                        <div class="signature-box">
+                            <div class="line">ผู้ตรวจสอบ</div>
+                        </div>
+                    </section>
+                    <section class="signature-admin">
+                        <div class="signature-box">
+                            <div class="line">ผู้บริหารสถานศึกษา</div>
+                        </div>
+                    </section>
+                </body>
+                </html>
+            `;
+
+            const printWindow = window.open('', '_blank');
+            if (!printWindow) {
+                alert('ไม่สามารถเปิดหน้าพิมพ์ได้ กรุณาอนุญาต Pop-up สำหรับเว็บไซต์นี้');
+                return;
+            }
+
+            printWindow.document.open();
+            printWindow.document.write(reportHtml);
+            printWindow.document.close();
+
+            let didClosePrintWindow = false;
+            const closePrintWindow = () => {
+                if (didClosePrintWindow) return;
+                didClosePrintWindow = true;
+
+                setTimeout(() => {
+                    if (!printWindow.closed) {
+                        printWindow.close();
+                    }
+                    window.focus();
+                }, 200);
+            };
+
+            printWindow.onafterprint = closePrintWindow;
+
+            let didStartPrint = false;
+            const startPrint = () => {
+                if (didStartPrint) return;
+                didStartPrint = true;
+
+                printWindow.focus();
+                printWindow.print();
+            };
+
+            printWindow.onload = startPrint;
+            setTimeout(startPrint, 900);
+        }
+
+        function updateSummary() {
+            const passCount = students.filter(student => student.status === 'pass').length;
+            const failCount = students.filter(student => student.status === 'fail').length;
+
+            document.getElementById('total-count').textContent = students.length;
+            document.getElementById('pass-count').textContent = passCount;
+            document.getElementById('fail-count').textContent = failCount;
+        }
+
+        function escapeHtml(value) {
+            return String(value ?? '').replace(/[&<>"']/g, char => ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#39;'
+            }[char]));
+        }
+
+        renderTable();
+    </script>
+</body>
+</html>
