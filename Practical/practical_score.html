@@ -335,7 +335,7 @@
 
     <script>
         const STORAGE_KEY = 'practical-score-students-v2';
-        const SCHOOL_LOGO_URL = new URL('school_logo.jfif', window.location.href).href;
+        const SCHOOL_LOGO_URL = new URL('../assets/print-logo.jpg', window.location.href).href;
         const defaultStudents = [
             { name: 'นางสาวชุติกาญจน์  โพธิสาร', status: '' },
             { name: 'นางสาวณิชานันท์ สิทธิบุรี', status: '' },
@@ -455,8 +455,47 @@
                     <meta charset="UTF-8">
                     <title>แบบฟอร์มคะแนนปฏิบัติ</title>
                     <style>
-                        @page { size: A4; margin: 14mm; }
+                                                @page { size: A4; margin: 10mm; }
                         * { box-sizing: border-box; }
+                        html { background: #f8fafc; }
+                        body {
+                            padding: 7mm;
+                            background: #ffffff;
+                        }
+                        body::before {
+                            content: "";
+                            position: fixed;
+                            inset: 1.5mm;
+                            border: 2px solid #334155;
+                            border-radius: 4px;
+                            pointer-events: none;
+                            z-index: 20;
+                        }
+                        body::after {
+                            content: "";
+                            position: fixed;
+                            inset: 4mm;
+                            border: 1px solid #cbd5e1;
+                            border-radius: 2px;
+                            pointer-events: none;
+                            z-index: 20;
+                        }
+                        .page-watermark {
+                            position: fixed;
+                            top: 50%;
+                            left: 50%;
+                            width: 86mm;
+                            height: 86mm;
+                            transform: translate(-50%, -50%);
+                            opacity: 0.055;
+                            object-fit: contain;
+                            pointer-events: none;
+                            z-index: 0;
+                        }
+                        body > :not(.page-watermark) {
+                            position: relative;
+                            z-index: 1;
+                        }
                         body {
                             margin: 0;
                             color: #0f172a;
@@ -566,6 +605,7 @@
                     </style>
                 </head>
                 <body>
+                    <img class="page-watermark" src="${SCHOOL_LOGO_URL}" alt="">
                     <section class="report-header">
                         <img class="school-logo" src="${SCHOOL_LOGO_URL}" alt="ตราโรงเรียนอรัญภูมิบริบาล">
                         <h1>แบบฟอร์มรายงานผลคะแนนปฏิบัติ</h1>
