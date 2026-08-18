@@ -275,11 +275,10 @@
         const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbwYCeX3JtGodusOEUnFnBKnY-5e5h6h-NcaFLNwEEbFJ-JKPJ_5S7kp2LlniNOhRg0B/exec';
         const DEFAULT_EXAM_TITLE = 'สอบระบบย่อยอาหาร ระบบขับถ่าย ระบบสืบพันธุ์ ศัพท์เทคนิคทางการแพทย์และการพยาบาล และจิตสังคม ครั้งที่ 2.';
         const DATA_CACHE_TTL_MS = 5 * 60 * 1000;
-        const DATA_CACHE_VERSION = `${SHEET_ID}:${SHEET_GID}:score30`;
+        const DATA_CACHE_VERSION = `${SHEET_ID}:${SHEET_GID}:raw-score`;
         const DATA_CACHE_KEY = `boriban-student-data:${DATA_CACHE_VERSION}:${location.pathname}`;
         
         let studentData = [];
-        const SOURCE_MAX_POSSIBLE_SCORE = 100;
         const DEFAULT_MAX_POSSIBLE_SCORE = 30;
         let maxPossibleScore = DEFAULT_MAX_POSSIBLE_SCORE; 
         let examTitle = DEFAULT_EXAM_TITLE;
@@ -364,25 +363,6 @@
 
         function extractMaxScore(scoreString) {
             return parseScoreParts(scoreString).maxScore;
-        }
-
-        function normalizeScoreToDisplayScale(score, sourceMaxScore = SOURCE_MAX_POSSIBLE_SCORE) {
-            const numericScore = Number(score);
-            const numericSourceMax = Number(sourceMaxScore);
-
-            if (!Number.isFinite(numericScore)) return 0;
-
-            let sourceMax = Number.isFinite(numericSourceMax) && numericSourceMax > DEFAULT_MAX_POSSIBLE_SCORE
-                ? numericSourceMax
-                : DEFAULT_MAX_POSSIBLE_SCORE;
-            if (sourceMax === DEFAULT_MAX_POSSIBLE_SCORE && numericScore > DEFAULT_MAX_POSSIBLE_SCORE) {
-                sourceMax = SOURCE_MAX_POSSIBLE_SCORE;
-            }
-            const scaledScore = sourceMax === DEFAULT_MAX_POSSIBLE_SCORE
-                ? numericScore
-                : numericScore * (DEFAULT_MAX_POSSIBLE_SCORE / sourceMax);
-
-            return Number(Math.max(0, Math.min(DEFAULT_MAX_POSSIBLE_SCORE, scaledScore)).toFixed(2));
         }
 
         function formatScore(value) {
@@ -540,7 +520,20 @@
                 if (rawData.length > 0) {
                    const fetchedExamTitle = String(getFirstAvailableValue(rawData[0], EXAM_TITLE_KEYS)).trim();
                    examTitle = fetchedExamTitle || DEFAULT_EXAM_TITLE;
-                   maxPossibleScore = DEFAULT_MAX_POSSIBLE_SCORE;
+                   const detectedMaxScores = rawData
+                       .map(item => extractMaxScore(getFirstMatchingValue(item, [
+                           'คะแนน',
+                           'score',
+                           'percent',
+                           'ร้อยละ'
+                       ], [
+                           'timestamp',
+                           'ประทับเวลา',
+                           'ชื่อ',
+                           'name'
+                       ]) || ''))
+                       .filter(score => Number.isFinite(score) && score > 0);
+                   maxPossibleScore = detectedMaxScores.length > 0 ? Math.max(...detectedMaxScores) : DEFAULT_MAX_POSSIBLE_SCORE;
                 }
 
                 studentData = rawData.map(item => {
@@ -579,7 +572,7 @@
 
                     return {
                         name: String(name).trim(),
-                        score: normalizeScoreToDisplayScale(scoreParts.score, scoreParts.maxScore),
+                        score: scoreParts.score,
                         timestamp: timestamp
                     };
                 });
@@ -801,7 +794,7 @@
             const individualStage = document.getElementById('individual-chart-stage');
             if (individualStage) {
                 const parentWidth = individualStage.parentElement?.clientWidth || 0;
-                const widthByNames = Math.max(360, studentNames.length * 64);
+                const widthByNames = Math.max(480, studentNames.length * 90);
                 individualStage.style.width = `${Math.max(parentWidth, widthByNames)}px`;
             }
 
@@ -846,6 +839,7 @@
                         x: {
                             ticks: { 
                                 font: { family: 'Prompt', size: 11 },
+                                autoSkip: false,
                                 maxRotation: 45, // เอียงชื่อให้อ่านง่าย
                                 minRotation: 45
                             },
