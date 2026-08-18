@@ -275,13 +275,6 @@
         const GOOGLE_SHEET_GVIZ_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&gid=${SHEET_GID}&headers=1`;
         const DEFAULT_EXAM_TITLE = 'สอบระบบย่อยอาหาร ระบบขับถ่าย ระบบสืบพันธุ์ ศัพท์เทคนิคทางการแพทย์และการพยาบาล และจิตสังคม ครั้งที่ 2.';
         const CORRECTED_SCORE_ROWS = [
-            { score: '30 / 30', name: 'นางสาวอภิสรา มารปริ' },
-            { score: '22 / 30', name: 'นางสาว ณิชานันท์ สิทธิบุรี' },
-            { score: '26 / 30', name: 'นางสาวชุติกาญจน์ โพธิสาร' },
-            { score: '21 / 30', name: 'ธีรศักดิ์ เอกวุธ' },
-            { score: '25 / 30', name: 'สิริญญา คงฟัก' },
-            { score: '23 / 30', name: 'สุรเชษฐ์ วงค์สุวรรณ' },
-            { score: '26 / 30', name: 'ธัญญาเรศ จันทะพงษ์' },
             { score: '28 / 30', name: 'นางสาวอภิสรา มารปริ' },
             { score: '22 / 30', name: 'นางสาว ณิชานันท์ สิทธิบุรี' },
             { score: '26 / 30', name: 'นางสาวชุติกาญจน์ โพธิสาร' },
@@ -291,7 +284,7 @@
             { score: '26 / 30', name: 'ธัญญาเรศ จันทะพงษ์' }
         ];
         const DATA_CACHE_TTL_MS = 5 * 60 * 1000;
-        const DATA_CACHE_VERSION = `${SHEET_ID}:${SHEET_GID}:raw-score:v3`;
+        const DATA_CACHE_VERSION = `${SHEET_ID}:${SHEET_GID}:raw-score:v4`;
         const DATA_CACHE_KEY = `boriban-student-data:${DATA_CACHE_VERSION}:${location.pathname}`;
         const DATA_CACHE_BUSTER = Math.floor(Date.now() / DATA_CACHE_TTL_MS);
         
@@ -515,11 +508,6 @@
                     }
                 }
 
-                if (CORRECTED_SCORE_ROWS.length) {
-                    rawData = CORRECTED_SCORE_ROWS;
-                    writeCachedRawData(rawData);
-                }
-
                 console.log("ข้อมูลที่ดึงมาได้ (แถวแรก):", rawData.length > 0 ? rawData[0] : "ไม่มีข้อมูล");
                 if (rawData.length > 0) {
                    const fetchedExamTitle = String(getFirstAvailableValue(rawData[0], EXAM_TITLE_KEYS)).trim();
@@ -582,6 +570,10 @@
                 });
 
                 studentData = studentData.filter(s => s.name !== "" && s.name !== "undefined" && s.name !== "null");
+                studentData = Array.from(studentData.reduce((latestByName, student) => {
+                    latestByName.set(student.name.toLowerCase().replace(/\s+/g, ' '), student);
+                    return latestByName;
+                }, new Map()).values());
                 
                 // ปลดล็อกปุ่มค้นหาเมื่อโหลดเสร็จ
                 const searchBtn = document.getElementById('search-btn');
