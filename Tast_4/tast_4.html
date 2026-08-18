@@ -272,6 +272,9 @@
         // Tast_4 อ่านข้อมูลจาก Google Sheet โดยตรง
         const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbzoEfzBR2XEN-ADf0NvAbTiaDqvBmFPFbaQb3Nwb5LJAK2MzVOGlaAOsiIDP6mb4MwnTg/exec';
         const GOOGLE_SHEET_GVIZ_URL = 'https://docs.google.com/spreadsheets/d/1SoeaQfnbN4iH5GYOuro1gHL4wXeubl1WMmkMPq6Cu2s/gviz/tq?tqx=out:json&gid=764823269';
+        const DATA_CACHE_TTL_MS = 5 * 60 * 1000;
+        const DATA_CACHE_KEY = `boriban-student-data:${location.pathname}`;
+        const DATA_CACHE_VERSION = Math.floor(Date.now() / DATA_CACHE_TTL_MS);
         const DEFAULT_EXAM_TITLE = 'แบบทดสอบ First Aid CPR และการดูแล NG 20 ข้อ';
         const STATIC_FALLBACK_ROWS = [];
         
@@ -410,7 +413,7 @@
                 const timeoutId = window.setTimeout(() => {
                     restore();
                     reject(new Error('โหลดข้อมูลจาก Google Sheet ไม่สำเร็จ'));
-                }, 15000);
+                }, 8000);
 
                 window.google = window.google || {};
                 window.google.visualization = window.google.visualization || {};
@@ -427,11 +430,69 @@
                     reject(new Error('เชื่อมต่อ Google Sheet ไม่สำเร็จ'));
                 };
 
-                script.src = `${GOOGLE_SHEET_GVIZ_URL}&cacheBust=${Date.now()}`;
+                script.src = `${GOOGLE_SHEET_GVIZ_URL}&cacheBust=${DATA_CACHE_VERSION}`;
                 document.head.appendChild(script);
             });
         }
 
+        async function fetchWebAppRows() {
+            if (!WEB_APP_URL) return [];
+
+            const webAppUrl = `${WEB_APP_URL}${WEB_APP_URL.includes('?') ? '&' : '?'}cacheBust=${DATA_CACHE_VERSION}`;
+            const controller = new AbortController();
+            const timeoutId = window.setTimeout(() => controller.abort(), 20000);
+
+            try {
+                const response = await fetch(webAppUrl, { cache: 'default', signal: controller.signal });
+                const responseText = await response.text();
+                const contentType = response.headers.get('content-type') || '';
+
+                if (!response.ok) {
+                    throw new Error(`Web App returned HTTP ${response.status}`);
+                }
+
+                if (!contentType.includes('application/json') && !responseText.trim().startsWith('{') && !responseText.trim().startsWith('[')) {
+                    throw new Error('Web App did not return JSON');
+                }
+
+                return normalizeFetchedStudentRows(JSON.parse(responseText));
+            } finally {
+                window.clearTimeout(timeoutId);
+            }
+        }
+        function readCachedRawData() {
+            try {
+                const cached = JSON.parse(localStorage.getItem(DATA_CACHE_KEY) || 'null');
+                if (cached && Array.isArray(cached.rows) && Number.isFinite(cached.savedAt)) return cached;
+            } catch (error) {
+                console.warn('Could not read local data cache:', error);
+            }
+            return null;
+        }
+
+        function isCachedRawDataFresh(cached) {
+            return cached && Date.now() - cached.savedAt < DATA_CACHE_TTL_MS;
+        }
+
+        function writeCachedRawData(rawData) {
+            try {
+                localStorage.setItem(DATA_CACHE_KEY, JSON.stringify({ savedAt: Date.now(), rows: rawData }));
+            } catch (error) {
+                console.warn('Could not write local data cache:', error);
+            }
+        }
+
+        async function fetchJsonWithTimeout(url, timeoutMs = 10000) {
+            const controller = new AbortController();
+            const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+            try {
+                const response = await fetch(url, { cache: 'default', signal: controller.signal });
+                if (!response.ok) throw new Error(`Web App returned HTTP ${response.status}`);
+                return await response.json();
+            } finally {
+                window.clearTimeout(timeoutId);
+            }
+        }
         async function fetchStudentData() {
             document.getElementById('stat-avg').innerText = "กำลังโหลด...";
             document.getElementById('stat-max').innerText = "...";
@@ -439,35 +500,32 @@
 
             try {
                 let rawData = [];
+                const loadErrors = [];
+                const cachedData = readCachedRawData();
 
-                if (WEB_APP_URL) {
+                if (isCachedRawDataFresh(cachedData)) {
+                    rawData = cachedData.rows;
+                } else {
+                    const loadAttempts = [
+                        fetchWebAppRows().then(rows => ({ source: 'Web App', rows })),
+                        fetchGoogleSheetRows().then(rows => ({ source: 'Google Sheet', rows }))
+                    ];
+
                     try {
-                        const webAppUrl = `${WEB_APP_URL}${WEB_APP_URL.includes('?') ? '&' : '?'}cacheBust=${Date.now()}`;
-                        const response = await fetch(webAppUrl, { cache: 'no-store' });
-                        const responseText = await response.text();
-                        const contentType = response.headers.get('content-type') || '';
-
-                        if (!response.ok) {
-                            throw new Error(`Web App returned HTTP ${response.status}`);
-                        }
-
-                        if (!contentType.includes('application/json') && !responseText.trim().startsWith('{') && !responseText.trim().startsWith('[')) {
-                            throw new Error('Web App ไม่ได้ส่งข้อมูล JSON กลับมา');
-                        }
-
-                        const payload = JSON.parse(responseText);
-                        rawData = normalizeFetchedStudentRows(payload);
-                    } catch (webAppError) {
-                        console.warn("Web App ใช้งานไม่ได้ จึงอ่านจาก Google Sheet โดยตรง:", webAppError);
+                        rawData = await Promise.any(loadAttempts.map(attempt => attempt.then(result => {
+                            if (result.rows.length > 0) return result.rows;
+                            throw new Error(`${result.source} returned no rows`);
+                        })));
+                    } catch (aggregateError) {
+                        (aggregateError.errors || [aggregateError]).forEach(error => loadErrors.push(error?.message || String(error)));
                     }
+
+                    if (rawData.length > 0) writeCachedRawData(rawData);
                 }
 
-                if (rawData.length === 0) {
-                    try {
-                        rawData = await fetchGoogleSheetRows();
-                    } catch (sheetError) {
-                        console.warn("อ่าน Google Sheet โดยตรงไม่ได้ จึงใช้ข้อมูลสำรองล่าสุด:", sheetError);
-                    }
+                if (rawData.length === 0 && cachedData?.rows?.length) {
+                    console.warn('Using stale cached data after refresh failed');
+                    rawData = cachedData.rows;
                 }
 
                 if (rawData.length === 0 && STATIC_FALLBACK_ROWS.length > 0) {
@@ -475,7 +533,7 @@
                 }
 
                 if (rawData.length === 0) {
-                    throw new Error('ไม่พบข้อมูลจาก Google Sheet หรือไม่มีสิทธิ์เข้าถึงชีต');
+                    throw new Error(`Unable to load data from Web App or Google Sheet (${loadErrors.join(' / ') || 'no rows found'})`);
                 }
 
                 console.log("ข้อมูลที่ดึงมาได้ (แถวแรก):", rawData.length > 0 ? rawData[0] : "ไม่มีข้อมูล");

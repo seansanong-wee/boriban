@@ -274,6 +274,9 @@
         const TARGET_SHEET_NAME = 'การตอบแบบฟอร์ม 2';
         const TARGET_SHEET_GID = '1394538477';
         const GOOGLE_SHEET_GVIZ_URL = `https://docs.google.com/spreadsheets/d/1vmT6QXgNz7o0Bc3w_uKDy1Smr9L51E_j62mZ2p-b7fo/gviz/tq?tqx=out:json&gid=${TARGET_SHEET_GID}&headers=1`;
+        const DATA_CACHE_TTL_MS = 5 * 60 * 1000;
+        const DATA_CACHE_KEY = `boriban-student-data:${location.pathname}`;
+        const DATA_CACHE_VERSION = Math.floor(Date.now() / DATA_CACHE_TTL_MS);
         const DEFAULT_EXAM_TITLE = 'การดูแลแผล ทางเดินหายใจ การขับถ่าย ออกซิเจน และพ่นยา';
 
         let studentData = [];
@@ -402,7 +405,7 @@
                 const timeoutId = window.setTimeout(() => {
                     cleanup();
                     reject(new Error('Web App ไม่ตอบกลับข้อมูลคะแนน'));
-                }, 15000);
+                }, 8000);
 
                 window[callbackName] = payload => {
                     window.clearTimeout(timeoutId);
@@ -417,7 +420,7 @@
                 };
 
                 const separator = WEB_APP_URL.includes('?') ? '&' : '?';
-                script.src = `${WEB_APP_URL}${separator}callback=${encodeURIComponent(callbackName)}&sheet=${encodeURIComponent(TARGET_SHEET_NAME)}&gid=${encodeURIComponent(TARGET_SHEET_GID)}&cacheBust=${Date.now()}`;
+                script.src = `${WEB_APP_URL}${separator}callback=${encodeURIComponent(callbackName)}&sheet=${encodeURIComponent(TARGET_SHEET_NAME)}&gid=${encodeURIComponent(TARGET_SHEET_GID)}&cacheBust=${DATA_CACHE_VERSION}`;
                 document.head.appendChild(script);
             });
         }
@@ -452,7 +455,7 @@
                 const timeoutId = window.setTimeout(() => {
                     restore();
                     reject(new Error('โหลดข้อมูลจาก Google Sheet ไม่สำเร็จ'));
-                }, 15000);
+                }, 8000);
 
                 window.google = window.google || {};
                 window.google.visualization = window.google.visualization || {};
@@ -469,11 +472,44 @@
                     reject(new Error('เชื่อมต่อ Google Sheet ไม่สำเร็จ'));
                 };
 
-                script.src = `${GOOGLE_SHEET_GVIZ_URL}&cacheBust=${Date.now()}`;
+                script.src = `${GOOGLE_SHEET_GVIZ_URL}&cacheBust=${DATA_CACHE_VERSION}`;
                 document.head.appendChild(script);
             });
         }
 
+        function readCachedRawData() {
+            try {
+                const cached = JSON.parse(localStorage.getItem(DATA_CACHE_KEY) || 'null');
+                if (cached && Array.isArray(cached.rows) && Number.isFinite(cached.savedAt)) return cached;
+            } catch (error) {
+                console.warn('Could not read local data cache:', error);
+            }
+            return null;
+        }
+
+        function isCachedRawDataFresh(cached) {
+            return cached && Date.now() - cached.savedAt < DATA_CACHE_TTL_MS;
+        }
+
+        function writeCachedRawData(rawData) {
+            try {
+                localStorage.setItem(DATA_CACHE_KEY, JSON.stringify({ savedAt: Date.now(), rows: rawData }));
+            } catch (error) {
+                console.warn('Could not write local data cache:', error);
+            }
+        }
+
+        async function fetchJsonWithTimeout(url, timeoutMs = 10000) {
+            const controller = new AbortController();
+            const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+            try {
+                const response = await fetch(url, { cache: 'default', signal: controller.signal });
+                if (!response.ok) throw new Error(`Web App returned HTTP ${response.status}`);
+                return await response.json();
+            } finally {
+                window.clearTimeout(timeoutId);
+            }
+        }
         async function fetchStudentData() {
             document.getElementById('stat-avg').innerText = "กำลังโหลด...";
             document.getElementById('stat-max').innerText = "...";
@@ -482,25 +518,35 @@
             try {
                 let rawData = [];
                 const loadErrors = [];
+                const cachedData = readCachedRawData();
 
-                try {
-                    rawData = await fetchWebAppRows();
-                } catch (webAppError) {
-                    console.warn("Web App ใช้งานไม่ได้ จึงลองอ่าน Google Sheet โดยตรง:", webAppError);
-                    loadErrors.push(webAppError.message);
-                }
+                if (isCachedRawDataFresh(cachedData)) {
+                    rawData = cachedData.rows;
+                } else {
+                    const loadAttempts = [
+                        fetchWebAppRows().then(rows => ({ source: 'Web App', rows })),
+                        fetchGoogleSheetRows().then(rows => ({ source: 'Google Sheet', rows }))
+                    ];
 
-                if (rawData.length === 0) {
                     try {
-                        rawData = await fetchGoogleSheetRows();
-                    } catch (sheetError) {
-                        console.warn("อ่าน Google Sheet โดยตรงไม่ได้:", sheetError);
-                        loadErrors.push(sheetError.message);
+                        rawData = await Promise.any(loadAttempts.map(attempt => attempt.then(result => {
+                            if (result.rows.length > 0) return result.rows;
+                            throw new Error(`${result.source} returned no rows`);
+                        })));
+                    } catch (aggregateError) {
+                        (aggregateError.errors || [aggregateError]).forEach(error => loadErrors.push(error?.message || String(error)));
                     }
+
+                    if (rawData.length > 0) writeCachedRawData(rawData);
+                }
+
+                if (rawData.length === 0 && cachedData?.rows?.length) {
+                    console.warn('Using stale cached data after refresh failed');
+                    rawData = cachedData.rows;
                 }
 
                 if (rawData.length === 0) {
-                    throw new Error(`ยังอ่านข้อมูลจากแท็บ ${TARGET_SHEET_NAME} ไม่ได้ (${loadErrors.join(' / ') || 'ไม่พบข้อมูล'})`);
+                    throw new Error(`Unable to load data from ${TARGET_SHEET_NAME} (${loadErrors.join(' / ') || 'no rows found'})`);
                 }
 
                 console.log("ข้อมูลที่ดึงมาได้ (แถวแรก):", rawData.length > 0 ? rawData[0] : "ไม่มีข้อมูล");
