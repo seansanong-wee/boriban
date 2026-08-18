@@ -269,14 +269,15 @@
     </footer>
 
     <script>
-        // Google Sheet is the primary data source. Apps Script remains as a fallback.
+        // Tast 2 reads directly from this Google Sheet.
         const SHEET_ID = '1WFMKr61IZvgo3HRNw7d9WhQ3KXQAGS4Y6PRpLfAhoBY';
         const SHEET_GID = '2122100183';
-        const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbwYCeX3JtGodusOEUnFnBKnY-5e5h6h-NcaFLNwEEbFJ-JKPJ_5S7kp2LlniNOhRg0B/exec';
+        const GOOGLE_SHEET_GVIZ_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&gid=${SHEET_GID}&headers=1`;
         const DEFAULT_EXAM_TITLE = 'สอบระบบย่อยอาหาร ระบบขับถ่าย ระบบสืบพันธุ์ ศัพท์เทคนิคทางการแพทย์และการพยาบาล และจิตสังคม ครั้งที่ 2.';
         const DATA_CACHE_TTL_MS = 5 * 60 * 1000;
-        const DATA_CACHE_VERSION = `${SHEET_ID}:${SHEET_GID}:raw-score`;
+        const DATA_CACHE_VERSION = `${SHEET_ID}:${SHEET_GID}:raw-score:v2`;
         const DATA_CACHE_KEY = `boriban-student-data:${DATA_CACHE_VERSION}:${location.pathname}`;
+        const DATA_CACHE_BUSTER = Math.floor(Date.now() / DATA_CACHE_TTL_MS);
         
         let studentData = [];
         const DEFAULT_MAX_POSSIBLE_SCORE = 30;
@@ -373,26 +374,42 @@
 
         function fetchGoogleSheetRows(timeoutMs = 10000) {
             return new Promise((resolve, reject) => {
-                const callbackName = `__boribanSheetCallback_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-                const params = new URLSearchParams({
-                    gid: SHEET_GID,
-                    headers: '1',
-                    tqx: `out:json;responseHandler:${callbackName}`
-                });
                 const script = document.createElement('script');
+                const previousGoogle = window.google;
+                const previousVisualization = previousGoogle?.visualization;
+                const previousQuery = previousVisualization?.Query;
+                const previousSetResponse = previousQuery?.setResponse;
+
+                function restore() {
+                    script.remove();
+                    if (previousSetResponse) {
+                        window.google.visualization.Query.setResponse = previousSetResponse;
+                    } else if (window.google?.visualization?.Query) {
+                        delete window.google.visualization.Query.setResponse;
+                    }
+
+                    if (previousQuery === undefined && window.google?.visualization) {
+                        delete window.google.visualization.Query;
+                    }
+                    if (previousVisualization === undefined && window.google) {
+                        delete window.google.visualization;
+                    }
+                    if (previousGoogle === undefined) {
+                        delete window.google;
+                    }
+                }
+
                 const timeoutId = window.setTimeout(() => {
-                    cleanup();
+                    restore();
                     reject(new Error('Google Sheet request timed out'));
                 }, timeoutMs);
 
-                function cleanup() {
+                window.google = window.google || {};
+                window.google.visualization = window.google.visualization || {};
+                window.google.visualization.Query = window.google.visualization.Query || {};
+                window.google.visualization.Query.setResponse = response => {
                     window.clearTimeout(timeoutId);
-                    delete window[callbackName];
-                    script.remove();
-                }
-
-                window[callbackName] = response => {
-                    cleanup();
+                    restore();
                     if (response?.status && response.status !== 'ok') {
                         reject(new Error(response.errors?.[0]?.detailed_message || 'Google Sheet returned an error'));
                         return;
@@ -401,11 +418,12 @@
                 };
 
                 script.onerror = () => {
-                    cleanup();
+                    window.clearTimeout(timeoutId);
+                    restore();
                     reject(new Error('Could not load Google Sheet data'));
                 };
 
-                script.src = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?${params.toString()}`;
+                script.src = `${GOOGLE_SHEET_GVIZ_URL}&cacheBust=${DATA_CACHE_BUSTER}`;
                 document.head.appendChild(script);
             });
         }
@@ -427,27 +445,6 @@
                     return item;
                 }, {});
             }).filter(item => Object.values(item).some(value => String(value ?? '').trim() !== ''));
-        }
-
-        function normalizeFetchedStudentRows(payload) {
-            if (Array.isArray(payload)) return payload;
-
-            if (payload?.status && payload.status !== 'success') {
-                throw new Error(payload.message || 'Apps Script returned an error status');
-            }
-
-            if (Array.isArray(payload?.data)) return payload.data;
-            if (Array.isArray(payload?.data?.rows)) return payload.data.rows;
-            if (Array.isArray(payload?.data?.students)) return payload.data.students;
-            if (Array.isArray(payload?.data?.topScorers)) {
-                return payload.data.topScorers.map(item => ({
-                    ...item,
-                    'ชื่อ-นามสกุล': item.name,
-                    'คะแนน': item.scoreStr || item.score || item.percent
-                }));
-            }
-
-            return [];
         }
 
         function readCachedRawData() {
@@ -472,17 +469,6 @@
             }
         }
 
-        async function fetchJsonWithTimeout(url, timeoutMs = 10000) {
-            const controller = new AbortController();
-            const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
-            try {
-                const response = await fetch(url, { cache: 'default', signal: controller.signal });
-                if (!response.ok) throw new Error(`Web App returned HTTP ${response.status}`);
-                return await response.json();
-            } finally {
-                window.clearTimeout(timeoutId);
-            }
-        }
         async function fetchStudentData() {
             document.getElementById('stat-avg').innerText = "กำลังโหลด...";
             document.getElementById('stat-max').innerText = "...";
@@ -500,18 +486,11 @@
                         if (rawData.length === 0) throw new Error('Google Sheet returned no rows');
                         writeCachedRawData(rawData);
                     } catch (sheetError) {
-                        console.warn('Google Sheet load failed, trying Apps Script fallback:', sheetError);
-                        try {
-                            const payload = await fetchJsonWithTimeout(WEB_APP_URL);
-                            rawData = normalizeFetchedStudentRows(payload);
-                            writeCachedRawData(rawData);
-                        } catch (networkError) {
-                            if (cachedData?.rows?.length) {
-                                console.warn('Using stale cached data after refresh failed:', networkError);
-                                rawData = cachedData.rows;
-                            } else {
-                                throw networkError;
-                            }
+                        if (cachedData?.rows?.length) {
+                            console.warn('Using stale cached data after Google Sheet refresh failed:', sheetError);
+                            rawData = cachedData.rows;
+                        } else {
+                            throw sheetError;
                         }
                     }
                 }
@@ -603,7 +582,7 @@
                 
                 // Show user friendly alert rather than browser alert
                 const errorContainer = document.getElementById('error-message');
-                errorContainer.innerHTML = '<i class="fas fa-wifi mr-1"></i> เกิดข้อผิดพลาดในการเชื่อมต่อข้อมูล กรุณาตรวจสอบสิทธิ์ Google Sheet, Web App URL หรืออินเทอร์เน็ต';
+                errorContainer.innerHTML = '<i class="fas fa-wifi mr-1"></i> ยังอ่านข้อมูลจาก Google Sheet ที่กำหนดไม่ได้ กรุณาตรวจสอบว่าสิทธิ์ชีตเปิดเป็น Anyone with the link can view หรือเผยแพร่ให้เว็บอ่านได้';
                 errorContainer.classList.remove('hidden');
                 
                 const searchBtn = document.getElementById('search-btn');
