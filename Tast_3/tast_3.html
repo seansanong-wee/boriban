@@ -340,6 +340,22 @@
             return parseScoreParts(scoreString).maxScore;
         }
 
+        function normalizeStudentNameKey(value) {
+            return String(value ?? '')
+                .toLowerCase()
+                .normalize('NFC')
+                .replace(/[\u200B-\u200D\uFEFF]/g, '')
+                .replace(/\s+/g, '');
+        }
+
+        function deduplicateStudents(students) {
+            return Array.from(students.reduce((latestByName, student) => {
+                const nameKey = normalizeStudentNameKey(student.name);
+                if (nameKey) latestByName.set(nameKey, student);
+                return latestByName;
+            }, new Map()).values());
+        }
+
         function normalizeFetchedStudentRows(payload) {
             if (Array.isArray(payload)) return payload;
 
@@ -572,6 +588,7 @@
                 });
 
                 studentData = studentData.filter(s => s.name !== "" && s.name !== "undefined" && s.name !== "null");
+                studentData = deduplicateStudents(studentData);
                 
                 // ปลดล็อกปุ่มค้นหาเมื่อโหลดเสร็จ
                 const searchBtn = document.getElementById('search-btn');
@@ -632,8 +649,8 @@
             }
 
             const student = studentData.find(s => {
-                const dbName = s.name.toLowerCase().replace(/\s+/g, ' '); 
-                const searchStr = inputName.replace(/\s+/g, ' ');
+                const dbName = normalizeStudentNameKey(s.name);
+                const searchStr = normalizeStudentNameKey(inputName);
                 return dbName === searchStr || dbName.includes(searchStr);
             });
 
@@ -665,6 +682,8 @@
         }
 
         function initDashboard() {
+            studentData = deduplicateStudents(studentData);
+
             if (studentData.length === 0) {
                 document.getElementById('stat-avg').innerText = "ไม่มีข้อมูล";
                 document.getElementById('stat-max').innerText = "-";
@@ -860,6 +879,8 @@
         }
 
         function calculateSchoolSummary() {
+            studentData = deduplicateStudents(studentData);
+
             if (studentData.length === 0) return null;
 
             const sortedData = [...studentData].sort((a, b) => b.score - a.score || a.name.localeCompare(b.name, 'th'));

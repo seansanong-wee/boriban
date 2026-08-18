@@ -878,6 +878,8 @@
         }
 
         function calculateSchoolSummary() {
+            studentData = deduplicateStudents(studentData);
+
             if (studentData.length === 0) return null;
 
             const sortedData = [...studentData].sort((a, b) => b.score - a.score || a.name.localeCompare(b.name, 'th'));
