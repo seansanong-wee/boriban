@@ -269,9 +269,8 @@
     </footer>
 
     <script>
-        // Tast_4 อ่านข้อมูลจาก Google Sheet โดยตรง
+        // Tast_4 reads from the Apps Script Web App.
         const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbzoEfzBR2XEN-ADf0NvAbTiaDqvBmFPFbaQb3Nwb5LJAK2MzVOGlaAOsiIDP6mb4MwnTg/exec';
-        const GOOGLE_SHEET_GVIZ_URL = 'https://docs.google.com/spreadsheets/d/1SoeaQfnbN4iH5GYOuro1gHL4wXeubl1WMmkMPq6Cu2s/gviz/tq?tqx=out:json&gid=764823269';
         const DATA_CACHE_TTL_MS = 5 * 60 * 1000;
         const DATA_CACHE_KEY = `boriban-student-data:${location.pathname}`;
         const DATA_CACHE_VERSION = Math.floor(Date.now() / DATA_CACHE_TTL_MS);
@@ -383,64 +382,12 @@
             }).filter(row => Object.values(row).some(value => String(value || '').trim() !== ''));
         }
 
-        function fetchGoogleSheetRows() {
-            return new Promise((resolve, reject) => {
-                const script = document.createElement('script');
-                const previousGoogle = window.google;
-                const previousVisualization = previousGoogle?.visualization;
-                const previousQuery = previousVisualization?.Query;
-                const previousSetResponse = previousQuery?.setResponse;
-
-                function restore() {
-                    script.remove();
-                    if (previousSetResponse) {
-                        window.google.visualization.Query.setResponse = previousSetResponse;
-                    } else if (window.google?.visualization?.Query) {
-                        delete window.google.visualization.Query.setResponse;
-                    }
-
-                    if (previousQuery === undefined && window.google?.visualization) {
-                        delete window.google.visualization.Query;
-                    }
-                    if (previousVisualization === undefined && window.google) {
-                        delete window.google.visualization;
-                    }
-                    if (previousGoogle === undefined) {
-                        delete window.google;
-                    }
-                }
-
-                const timeoutId = window.setTimeout(() => {
-                    restore();
-                    reject(new Error('โหลดข้อมูลจาก Google Sheet ไม่สำเร็จ'));
-                }, 8000);
-
-                window.google = window.google || {};
-                window.google.visualization = window.google.visualization || {};
-                window.google.visualization.Query = window.google.visualization.Query || {};
-                window.google.visualization.Query.setResponse = payload => {
-                    window.clearTimeout(timeoutId);
-                    restore();
-                    resolve(googleVisualizationPayloadToRows(payload));
-                };
-
-                script.onerror = () => {
-                    window.clearTimeout(timeoutId);
-                    restore();
-                    reject(new Error('เชื่อมต่อ Google Sheet ไม่สำเร็จ'));
-                };
-
-                script.src = `${GOOGLE_SHEET_GVIZ_URL}&cacheBust=${DATA_CACHE_VERSION}`;
-                document.head.appendChild(script);
-            });
-        }
-
         async function fetchWebAppRows() {
             if (!WEB_APP_URL) return [];
 
             const webAppUrl = `${WEB_APP_URL}${WEB_APP_URL.includes('?') ? '&' : '?'}cacheBust=${DATA_CACHE_VERSION}`;
             const controller = new AbortController();
-            const timeoutId = window.setTimeout(() => controller.abort(), 20000);
+            const timeoutId = window.setTimeout(() => controller.abort(), 30000);
 
             try {
                 const response = await fetch(webAppUrl, { cache: 'default', signal: controller.signal });
@@ -460,6 +407,25 @@
                 window.clearTimeout(timeoutId);
             }
         }
+
+        async function fetchWebAppRowsWithRetry() {
+            const attempts = 2;
+            let lastError;
+
+            for (let attempt = 1; attempt <= attempts; attempt += 1) {
+                try {
+                    const rows = await fetchWebAppRows();
+                    if (rows.length > 0) return rows;
+                    lastError = new Error('Web App returned no rows');
+                } catch (error) {
+                    lastError = error;
+                    console.warn(`Tast 4 Web App attempt ${attempt} failed:`, error);
+                }
+            }
+
+            throw lastError || new Error('Unable to load Tast 4 Web App data');
+        }
+
         function readCachedRawData() {
             try {
                 const cached = JSON.parse(localStorage.getItem(DATA_CACHE_KEY) || 'null');
@@ -482,17 +448,6 @@
             }
         }
 
-        async function fetchJsonWithTimeout(url, timeoutMs = 10000) {
-            const controller = new AbortController();
-            const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
-            try {
-                const response = await fetch(url, { cache: 'default', signal: controller.signal });
-                if (!response.ok) throw new Error(`Web App returned HTTP ${response.status}`);
-                return await response.json();
-            } finally {
-                window.clearTimeout(timeoutId);
-            }
-        }
         async function fetchStudentData() {
             document.getElementById('stat-avg').innerText = "กำลังโหลด...";
             document.getElementById('stat-max').innerText = "...";
@@ -506,21 +461,12 @@
                 if (isCachedRawDataFresh(cachedData)) {
                     rawData = cachedData.rows;
                 } else {
-                    const loadAttempts = [
-                        fetchWebAppRows().then(rows => ({ source: 'Web App', rows })),
-                        fetchGoogleSheetRows().then(rows => ({ source: 'Google Sheet', rows }))
-                    ];
-
                     try {
-                        rawData = await Promise.any(loadAttempts.map(attempt => attempt.then(result => {
-                            if (result.rows.length > 0) return result.rows;
-                            throw new Error(`${result.source} returned no rows`);
-                        })));
-                    } catch (aggregateError) {
-                        (aggregateError.errors || [aggregateError]).forEach(error => loadErrors.push(error?.message || String(error)));
+                        rawData = await fetchWebAppRowsWithRetry();
+                        writeCachedRawData(rawData);
+                    } catch (webAppError) {
+                        loadErrors.push(webAppError?.message || String(webAppError));
                     }
-
-                    if (rawData.length > 0) writeCachedRawData(rawData);
                 }
 
                 if (rawData.length === 0 && cachedData?.rows?.length) {
@@ -533,7 +479,7 @@
                 }
 
                 if (rawData.length === 0) {
-                    throw new Error(`Unable to load data from Web App or Google Sheet (${loadErrors.join(' / ') || 'no rows found'})`);
+                    throw new Error(`Unable to load Tast 4 data from Web App (${loadErrors.join(' / ') || 'no rows found'})`);
                 }
 
                 console.log("ข้อมูลที่ดึงมาได้ (แถวแรก):", rawData.length > 0 ? rawData[0] : "ไม่มีข้อมูล");
@@ -588,7 +534,7 @@
                 
                 // Show user friendly alert rather than browser alert
                 const errorContainer = document.getElementById('error-message');
-                errorContainer.innerHTML = '<i class="fas fa-wifi mr-1"></i> เกิดข้อผิดพลาดในการเชื่อมต่อข้อมูล กรุณาตรวจสอบสิทธิ์การเข้าถึง Google Sheet หรืออินเทอร์เน็ต';
+                errorContainer.innerHTML = '<i class="fas fa-wifi mr-1"></i> เกิดข้อผิดพลาดในการเชื่อมต่อข้อมูล Tast 4 กรุณาตรวจสอบ Web App URL หรืออินเทอร์เน็ต';
                 errorContainer.classList.remove('hidden');
                 
                 const searchBtn = document.getElementById('search-btn');

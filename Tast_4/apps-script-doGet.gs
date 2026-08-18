@@ -2,7 +2,7 @@ const SPREADSHEET_ID = '1SoeaQfnbN4iH5GYOuro1gHL4wXeubl1WMmkMPq6Cu2s';
 const SHEET_ID = 764823269;
 const SHEET_NAME = 'การตอบแบบฟอร์ม 2';
 
-function doGet() {
+function doGet(e) {
   try {
     const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
     const sheet = getTargetSheet_(spreadsheet);
@@ -24,16 +24,16 @@ function doGet() {
         return item;
       }, {}));
 
-    return json_({
+    return outputTast4_({
       status: 'success',
       data: rows,
       updatedAt: new Date().toISOString()
-    });
+    }, e);
   } catch (error) {
-    return json_({
+    return outputTast4_({
       status: 'error',
       message: error.message
-    });
+    }, e);
   }
 }
 
@@ -47,8 +47,17 @@ function getTargetSheet_(spreadsheet) {
   return spreadsheet.getSheets().find(sheet => sheet.getSheetId() === SHEET_ID);
 }
 
-function json_(payload) {
+function outputTast4_(payload, e) {
+  const json = JSON.stringify(payload);
+  const callback = e && e.parameter ? String(e.parameter.callback || '').trim() : '';
+
+  if (callback) {
+    return ContentService
+      .createTextOutput(`${callback}(${json});`)
+      .setMimeType(ContentService.MimeType.JAVASCRIPT);
+  }
+
   return ContentService
-    .createTextOutput(JSON.stringify(payload))
+    .createTextOutput(json)
     .setMimeType(ContentService.MimeType.JSON);
 }
