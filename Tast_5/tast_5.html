@@ -189,8 +189,8 @@
             <div class="mb-8">
                 <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
                     <h2 class="text-2xl font-bold text-slate-800 px-2 border-l-4 border-primary">ภาพรวมผลการสอบ</h2>
-                    <button id="print-summary-btn" onclick="printSchoolSummary()" disabled
-                        class="w-full md:w-auto inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-slate-300 text-white font-medium cursor-not-allowed transition shadow-sm whitespace-nowrap"
+                    <button id="print-summary-btn" onclick="printSchoolSummary()"
+                        class="w-full md:w-auto inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-green-600 hover:bg-green-700 text-white font-medium transition shadow-md whitespace-nowrap"
                         title="พิมพ์รายงานภาพรวมทั้งหมดของโรงเรียนอรัญภูมิบริบาล">
                         <i class="fas fa-print"></i>
                         ปริ้นสรุป
@@ -572,8 +572,8 @@
                 searchBtn.className = "w-full md:w-auto flex items-center justify-center px-8 py-3.5 border border-transparent text-base font-medium rounded-xl text-white bg-red-500 cursor-not-allowed whitespace-nowrap";
 
                 const printBtn = document.getElementById('print-summary-btn');
-                printBtn.disabled = true;
-                printBtn.className = "w-full md:w-auto inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-slate-300 text-white font-medium cursor-not-allowed transition shadow-sm whitespace-nowrap";
+                printBtn.disabled = false;
+                printBtn.className = "w-full md:w-auto inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-medium transition shadow-md whitespace-nowrap";
             }
         }
 
@@ -880,12 +880,17 @@
 
         const PRINT_LOGO_URL = new URL('../assets/print-logo.jpg', window.location.href).href;
 
-        function printSchoolSummary() {
-            const summary = calculateSchoolSummary();
-            if (!summary) {
-                alert('ยังไม่มีข้อมูลสำหรับพิมพ์รายงาน กรุณารอให้ระบบโหลดข้อมูลให้เสร็จก่อน');
-                return;
-            }
+        async function printSchoolSummary() {
+            try {
+                if (studentData.length === 0) {
+                    await fetchStudentData();
+                }
+
+                const summary = calculateSchoolSummary();
+                if (!summary) {
+                    alert('ยังไม่มีข้อมูลสำหรับพิมพ์รายงาน กรุณารอให้ระบบโหลดข้อมูลให้เสร็จก่อน');
+                    return;
+                }
 
             const printedAt = new Date().toLocaleDateString('th-TH', {
                 year: 'numeric',
@@ -1189,35 +1194,65 @@
                 </html>
             `;
 
-            const printWindow = window.open('', '_blank');
-            if (!printWindow) {
-                alert('ไม่สามารถเปิดหน้าพิมพ์ได้ กรุณาอนุญาต Pop-up สำหรับเว็บไซต์นี้');
-                return;
+            printHtmlInHiddenFrame(reportHtml);
+            } catch (error) {
+                console.error('Print summary failed:', error);
+                alert('ไม่สามารถเปิดหน้าปริ้นได้ กรุณารีเฟรชหน้าเว็บแล้วลองอีกครั้ง');
+            }
+        }
+
+        function printHtmlInHiddenFrame(reportHtml) {
+            const oldFrame = document.getElementById('print-summary-frame');
+            if (oldFrame) {
+                oldFrame.remove();
             }
 
-            printWindow.document.open();
-            printWindow.document.write(reportHtml);
-            printWindow.document.close();
+            const frame = document.createElement('iframe');
+            frame.id = 'print-summary-frame';
+            frame.title = 'print summary';
+            frame.style.position = 'fixed';
+            frame.style.left = '-10000px';
+            frame.style.top = '0';
+            frame.style.width = '210mm';
+            frame.style.height = '297mm';
+            frame.style.border = '0';
+            document.body.appendChild(frame);
 
-            let didClosePrintWindow = false;
-            const closePrintWindow = () => {
-                if (didClosePrintWindow) return;
-                didClosePrintWindow = true;
+            const frameWindow = frame.contentWindow;
+            const frameDocument = frame.contentDocument || frameWindow?.document;
 
+            if (!frameWindow || !frameDocument) {
+                frame.remove();
+                throw new Error('Print frame is not available');
+            }
+
+            const cleanup = () => {
                 setTimeout(() => {
-                    if (!printWindow.closed) {
-                        printWindow.close();
+                    if (frame.parentNode) {
+                        frame.remove();
                     }
                     window.focus();
-                }, 200);
+                }, 1000);
             };
 
-            printWindow.onafterprint = closePrintWindow;
+            let didPrint = false;
+            const runPrint = () => {
+                if (didPrint) return;
+                didPrint = true;
+                setTimeout(() => {
+                    frameWindow.focus();
+                    frameWindow.print();
+                    setTimeout(cleanup, 3000);
+                }, 300);
+            };
 
-            setTimeout(() => {
-                printWindow.focus();
-                printWindow.print();
-            }, 500);
+            frameWindow.onafterprint = cleanup;
+            frame.onload = runPrint;
+
+            frameDocument.open();
+            frameDocument.write(reportHtml);
+            frameDocument.close();
+            setTimeout(runPrint, 800);
         }
 
         window.onload = fetchStudentData;
