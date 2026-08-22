@@ -336,6 +336,22 @@
             return parseScoreParts(scoreString).maxScore;
         }
 
+        function normalizeStudentNameKey(value) {
+            return String(value ?? '')
+                .toLowerCase()
+                .normalize('NFC')
+                .replace(/[\u200B-\u200D\uFEFF]/g, '')
+                .replace(/\s+/g, '');
+        }
+
+        function deduplicateStudents(students) {
+            return Array.from(students.reduce((latestByName, student) => {
+                const nameKey = normalizeStudentNameKey(student.name);
+                if (nameKey) latestByName.set(nameKey, student);
+                return latestByName;
+            }, new Map()).values());
+        }
+
         function normalizeFetchedStudentRows(payload) {
             if (Array.isArray(payload)) return payload;
 
