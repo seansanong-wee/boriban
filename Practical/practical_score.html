@@ -257,6 +257,22 @@
             color: #991b1b;
         }
 
+        .save-status {
+            color: #64748b;
+            font-size: 12px;
+            font-weight: 700;
+            min-height: 18px;
+            padding: 0 4px;
+        }
+
+        .save-status.saved {
+            color: #166534;
+        }
+
+        .save-status.error {
+            color: #be123c;
+        }
+
         @media (max-width: 680px) {
             .page-header {
                 padding-bottom: 62px;
@@ -312,6 +328,7 @@
             <div class="toolbar">
                 <h2 class="toolbar-title">รายการประเมินปฏิบัติ</h2>
                 <div class="toolbar-actions">
+                    <span id="save-status" class="save-status" aria-live="polite"></span>
                     <button type="button" class="print-btn" onclick="printPracticalReport()">ปริ้นรายงานโรงเรียน</button>
                     <button type="button" class="reset-btn" onclick="resetScores()">ล้างค่า</button>
                 </div>
@@ -334,7 +351,10 @@
     </main>
 
     <script>
-        const STORAGE_KEY = 'practical-score-students-v2';
+        const STORAGE_KEY = 'practical-score-students-v3';
+        const LEGACY_STORAGE_KEYS = ['practical-score-students-v2'];
+        const ALL_STORAGE_KEYS = [STORAGE_KEY, ...LEGACY_STORAGE_KEYS];
+        const STORAGE_COOKIE_KEY = 'boriban_practical_score_students';
         const SCHOOL_LOGO_URL = new URL('../assets/print-logo.jpg', window.location.href).href;
         const defaultStudents = [
             { name: 'นางสาวชุติกาญจน์  โพธิสาร', status: '' },
@@ -349,23 +369,102 @@
         let students = loadStudents();
 
         function loadStudents() {
-            try {
-                const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
-                if (Array.isArray(saved) && saved.length === 7) {
-                    return saved.map((student, index) => ({
-                        name: student.name || `นักเรียนคนที่ ${index + 1}`,
-                        status: student.status === 'pass' || student.status === 'fail' ? student.status : ''
-                    }));
-                }
-            } catch (error) {
-                console.warn('Cannot load practical score data', error);
-            }
+            const saved = readSavedStudents();
+            if (saved) return saved;
 
             return defaultStudents.map(student => ({ ...student }));
         }
 
+        function normalizeSavedStudents(saved) {
+            if (saved?.students) saved = saved.students;
+            if (!Array.isArray(saved)) return null;
+
+            return defaultStudents.map((fallbackStudent, index) => {
+                const savedStudent = saved[index] || {};
+                return {
+                    name: String(savedStudent.name || fallbackStudent.name || `นักเรียนคนที่ ${index + 1}`).trim(),
+                    status: savedStudent.status === 'pass' || savedStudent.status === 'fail'
+                        ? savedStudent.status
+                        : ''
+                };
+            });
+        }
+
+        function readSavedStudents() {
+            for (const storage of getAvailableStorageAreas()) {
+                for (const key of ALL_STORAGE_KEYS) {
+                    try {
+                        const saved = normalizeSavedStudents(JSON.parse(storage.getItem(key) || 'null'));
+                        if (saved) return saved;
+                    } catch (error) {
+                        console.warn('Cannot load practical score data', error);
+                    }
+                }
+            }
+
+            try {
+                const cookieValue = getCookieValue(STORAGE_COOKIE_KEY);
+                if (cookieValue) {
+                    return normalizeSavedStudents(JSON.parse(decodeURIComponent(cookieValue)));
+                }
+            } catch (error) {
+                console.warn('Cannot load practical score cookie data', error);
+            }
+
+            return null;
+        }
+
+        function getAvailableStorageAreas() {
+            const areas = [];
+            const addStorage = storage => {
+                if (storage && !areas.includes(storage)) areas.push(storage);
+            };
+
+            try { addStorage(window.localStorage); } catch (error) {}
+            try { addStorage(window.parent?.localStorage); } catch (error) {}
+            try { addStorage(window.top?.localStorage); } catch (error) {}
+
+            return areas;
+        }
+
+        function getCookieValue(name) {
+            return document.cookie
+                .split('; ')
+                .find(item => item.startsWith(`${name}=`))
+                ?.slice(name.length + 1) || '';
+        }
+
         function saveStudents() {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(students));
+            const payload = JSON.stringify(students);
+            let saved = false;
+
+            getAvailableStorageAreas().forEach(storage => {
+                ALL_STORAGE_KEYS.forEach(key => {
+                    try {
+                        storage.setItem(key, payload);
+                        saved = true;
+                    } catch (error) {
+                        console.warn('Cannot save practical score data', error);
+                    }
+                });
+            });
+
+            try {
+                document.cookie = `${STORAGE_COOKIE_KEY}=${encodeURIComponent(payload)}; max-age=31536000; path=/; SameSite=Lax`;
+                saved = saved || document.cookie.includes(`${STORAGE_COOKIE_KEY}=`);
+            } catch (error) {
+                console.warn('Cannot save practical score cookie data', error);
+            }
+
+            setSaveStatus(saved ? 'บันทึกแล้ว' : 'ยังบันทึกไม่ได้', saved ? 'saved' : 'error');
+        }
+
+        function setSaveStatus(message, state = '') {
+            const saveStatus = document.getElementById('save-status');
+            if (!saveStatus) return;
+
+            saveStatus.textContent = message;
+            saveStatus.className = `save-status ${state}`.trim();
         }
 
         function renderTable() {
@@ -720,7 +819,18 @@
             }[char]));
         }
 
+        window.addEventListener('storage', event => {
+            if (!ALL_STORAGE_KEYS.includes(event.key)) return;
+
+            const saved = readSavedStudents();
+            if (!saved) return;
+
+            students = saved;
+            renderTable();
+        });
+
         renderTable();
+        saveStudents();
     </script>
 </body>
 </html>
